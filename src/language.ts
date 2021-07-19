@@ -106,7 +106,9 @@ class SuperstructRenderer extends ConvenienceRenderer {
   }
   private emitObject(name: Name, t: ObjectType) {
     this.ensureBlankLine();
-    this.emitLine("export const ", name, " = s.object({");
+    const additionalProperties = t.getAdditionalProperties();
+    const fnName = additionalProperties !== undefined ? 'type' : 'object'
+    this.emitLine("export const ", name, ` = s.${fnName}({`);
     this.indent(() => {
       this.forEachClassProperty(t, "none", (_, jsonName, property) => {
         this.emitLine(`"${utf16StringEscape(jsonName)}"`, ": ", this.typeMapTypeForProperty(property), ",");
