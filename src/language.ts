@@ -22,13 +22,13 @@ import { funPrefixNamer } from 'quicktype-core/dist/Naming'
 import { arrayIntercalate } from 'collection-utils'
 import toposort from 'toposort'
 
-export const tsBlazeOptions = {
+export const superstructOptions = {
   converters: convertersOption(),
 };
 
-export class TsBlazeTargetLanguage extends TargetLanguage {
+export class SuperstructTargetLanguage extends TargetLanguage {
   protected getOptions(): Option<any>[] {
-      return [tsBlazeOptions.converters];
+      return [superstructOptions.converters];
   }
   // @ts-ignore
   get stringTypeMapping(): StringTypeMapping {
@@ -43,18 +43,18 @@ export class TsBlazeTargetLanguage extends TargetLanguage {
       return true;
   }
   constructor(
-    displayName: string = "TsBlaze",
-    names: string[] = ["tsBlaze"],
-    extension: string = "tsBlaze"
+    displayName: string = "Superstruct",
+    names: string[] = ["superstruct"],
+    extension: string = "superstruct"
   ) {
     super(displayName, names, extension);
   }
-  protected makeRenderer(renderContext: RenderContext):TsBlazeRenderer {
-    return new TsBlazeRenderer(this, renderContext);
+  protected makeRenderer(renderContext: RenderContext):SuperstructRenderer {
+    return new SuperstructRenderer(this, renderContext);
   }
 }
-class TsBlazeRenderer extends ConvenienceRenderer {
-  nameStyle(name:string):string { return `is_${name}`.replace(/(\.|_|-|\s)+./g,x => x.slice(-1).toUpperCase()) }
+class SuperstructRenderer extends ConvenienceRenderer {
+  nameStyle(name:string):string { return `_${name}`.replace(/(\.|_|-|\s)+./g,x => x.slice(-1).toUpperCase()) }
   namerForObjectProperty():Namer { return funPrefixNamer("properties", this.nameStyle) }
   makeUnionMemberNamer():Namer { return funPrefixNamer("union-member", this.nameStyle) }
   makeNamedTypeNamer():Namer { return funPrefixNamer("types", this.nameStyle) }
@@ -66,24 +66,33 @@ class TsBlazeRenderer extends ConvenienceRenderer {
 
     const match = matchType<Sourcelike>(
       t,
-      (_anyType) => "blaze.any()",
-      (_nullType) => "blaze.null()",
-      (_boolType) => "blaze.boolean()",
-      (_integerType) => "blaze.number().satisfies(isInteger)",
-      (_doubleType) => "blaze.number()",
-      (_stringType) => "blaze.string()",
-      (arrayType) => ["blaze.array(", this.typeMapTypeFor(arrayType.items), ")"],
+      (_anyType) => "s.any()",
+      (_nullType) => "s.literal(null)",
+      (_boolType) => "s.boolean()",
+      (_integerType) => "s.integer()",
+      (_doubleType) => "s.number()",
+      (_stringType) => "s.string()",
+      (arrayType) => ["s.array(", this.typeMapTypeFor(arrayType.items), ")"],
       (_classType) => panic("Should already be handled."),
-      (mapType) => ["blaze.record(", this.typeMapTypeFor(mapType.values), ")"],
+      (mapType) => ["s.record(s.string(), ", this.typeMapTypeFor(mapType.values), ")"],
       (_enumType) => panic("Should already be handled."),
       (unionType) => {
         const children = Array.from(unionType.getChildren()).map((type: Type) =>
           this.typeMapTypeFor(type)
         );
-        return ["blaze.oneOf([ ", ...arrayIntercalate(", ", children), " ])"];
+        return ["s.union([ ", ...arrayIntercalate(", ", children), " ])"];
       },
       (_transformedStringType) => {
-        return `blaze.string().satisfies(${this.nameStyle(_transformedStringType.kind.replace('-','_'))})`;
+        return `${
+          this.nameStyle(
+            _transformedStringType.kind.replace('-','_')
+            + (
+              ['date', 'time', 'date-time'].includes(_transformedStringType.kind)
+                ? '_string'
+                : ''
+            )
+          )
+        }`;
       }
     );
 
@@ -91,13 +100,13 @@ class TsBlazeRenderer extends ConvenienceRenderer {
   }
   typeMapTypeForProperty(p: ClassProperty): Sourcelike {
     if (p.isOptional) {
-      return ["blaze.optional(", this.typeMapTypeFor(p.type), ")"]
+      return ["s.optional(", this.typeMapTypeFor(p.type), ")"]
     }
     return this.typeMapTypeFor(p.type);
   }
   private emitObject(name: Name, t: ObjectType) {
     this.ensureBlankLine();
-    this.emitLine("export const ", name, " = blaze.object({");
+    this.emitLine("export const ", name, " = s.object({");
     this.indent(() => {
       this.forEachClassProperty(t, "none", (_, jsonName, property) => {
         this.emitLine(`"${utf16StringEscape(jsonName)}"`, ": ", this.typeMapTypeForProperty(property), ",");
@@ -121,42 +130,39 @@ class TsBlazeRenderer extends ConvenienceRenderer {
     })
   }
   emitSourceStructure() {
-    this.emitLine('import * as blaze from "ts-blaze"')
+    this.emitLine('import * as s from "superstruct"')
     this.ensureBlankLine()
 
     const regexps:string[] = []
     const stringFns:string[] = []
     this.forEachUniqType(( kind ) => {
       switch (kind) {
-        case 'integer':
-          stringFns.push("export const isInteger = (i: number) => i % 1 === 0;")
-          break
         case 'date':
           regexps.push("const DATE_REGEXP = /^(\\d\\d\\d\\d)-(\\d\\d)-(\\d\\d)$/;")
-          stringFns.push("export const isDate = DATE_REGEXP.test.bind(DATE_REGEXP);")
+          stringFns.push("export const DateString = s.refine(s.string(), 'date string', DATE_REGEXP.test.bind(DATE_REGEXP));")
           break
         case 'time':
           regexps.push("const TIME_REGEXP = /^(\\d\\d):(\\d\\d):(\\d\\d)(\\.\\d+)?(z|[+-]\\d\\d:\\d\\d)?$/i;")
-          stringFns.push("export const isTime = TIME_REGEXP.test.bind(TIME_REGEXP);")
+          stringFns.push("export const TimeString = s.refine(s.string(), 'time string', 'TIME_REGEXP.test.bind(TIME_REGEXP));")
           break
         case 'date-time':
           regexps.push("const DATE_TIME_REGEXP = /^(\\d\\d\\d\\d)-(\\d\\d)-(\\d\\d)(t|\\s)(\\d\\d):(\\d\\d):(\\d\\d)(\\.\\d+)?(z|[+-]\\d\\d:\\d\\d)?$/i;")
-          stringFns.push("export const isDateTime = DATE_TIME_REGEXP.test.bind(DATE_TIME_REGEXP);")
+          stringFns.push("export const DateTimeString = s.refine(s.string(), 'date time string', (DATE_TIME_REGEXP.test.bind(DATE_TIME_REGEXP));")
           break
         case 'bool-string':
-          stringFns.push("export const isBoolString = (s) => s === 'true' || s === 'false';")
+          stringFns.push("export const BoolString = s.refine(s.string(), 'bool string', (s) => s === 'true' || s === 'false');")
           break
         case 'uuid':
           regexps.push("const UUID_REGEXP = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;")
-          stringFns.push("export const isUuid = UUID_REGEXP.test.bind(UUID_REGEXP);")
+          stringFns.push("export const Uuid = s.refine(s.string(), 'uuid', UUID_REGEXP.test.bind(UUID_REGEXP));")
           break
         case 'uri':
           regexps.push("const URI_REGEXP = /^(https?|ftp):\\/\\/[^{}]+$/;")
-          stringFns.push("export const isUri = URI_REGEXP.test.bind(URI_REGEXP);")
+          stringFns.push("export const Uri = s.refine(s.string(), 'uri', URI_REGEXP.test.bind(URI_REGEXP));")
           break
         case 'integer-string':
           regexps.push("const INTEGER_STRING_REGEXP = /^(0|-?[1-9]\\d*)$/;")
-          stringFns.push("export const isIntegerString = INTEGER_STRING_REGEXP.test.bind(INTEGER_STRING_REGEXP);")
+          stringFns.push("export const IntegerString = s.refine(s.string(), 'interger string', INTEGER_STRING_REGEXP.test.bind(INTEGER_STRING_REGEXP));")
           break
       }
     })
@@ -168,14 +174,14 @@ class TsBlazeRenderer extends ConvenienceRenderer {
     this.forEachEnum("none", (enumType, enumName) => {
       const options: Sourcelike = [];
       this.forEachEnumCase(enumType, "none", (name: Name, _jsonName, _position) => {
-        options.push("blaze.string('");
+        options.push("s.string('");
         options.push(name);
         options.push("')");
         options.push(", ");
       });
       options.pop()
 
-      this.emitLine(["export const ", enumName, " = blaze.oneOf([ ", ...options, " ]);"]);
+      this.emitLine(["export const ", enumName, " = s.union([ ", ...options, " ]);"]);
     });
 
     const mapKey: Name[] = [];
@@ -205,9 +211,9 @@ class TsBlazeRenderer extends ConvenienceRenderer {
       if (type instanceof PrimitiveType) {
         this.emitExport(name, this.typeMapTypeFor(type));
       } else if (type instanceof MapType) {
-        this.emitExport(name, ["blaze.record(", this.typeMapTypeFor((type as any).values), ")"]);
+        this.emitExport(name, ["s.record(", this.typeMapTypeFor((type as any).values), ")"]);
       } else if (type.kind === "array") {
-        this.emitExport(name, ["blaze.array(", this.typeMapTypeFor((type as any).items), ")"]);
+        this.emitExport(name, ["s.array(", this.typeMapTypeFor((type as any).items), ")"]);
       }
       this.ensureBlankLine()
       this.emitLine("export default ", name, ';');
@@ -215,4 +221,4 @@ class TsBlazeRenderer extends ConvenienceRenderer {
   }
 }
 
-export default TsBlazeTargetLanguage
+export default SuperstructTargetLanguage

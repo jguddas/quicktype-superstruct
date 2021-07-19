@@ -30,7 +30,7 @@ function Page({
             <div className="container-xl mb-3">
               <div className="page-header d-print-none">
                 <h2 className="page-title">
-                  quicktype ts-blaze
+                  Quicktype Superstruct
                 </h2>
               </div>
             </div>

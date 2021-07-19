@@ -47,8 +47,8 @@ const EXAMPLES:{[key in InputType]:string} = {
 }
 
 const addDefaultType = (str:string) => str.replace(
-  /export default is(.*);/,
-  'export type $1 = blaze.InferValidatorType<typeof is$1>;\n\n$&'
+  /export default (.*);/,
+  'export type $1 = s.Infer<typeof $1>;\n\n$&'
 )
 
 const parseJson = async (str: string):Promise<any> => {
